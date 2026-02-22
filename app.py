@@ -1,33 +1,33 @@
 import os
 import zipfile
-from flask import Flask, request, send_from_directory, jsonify
+import shutil
+from flask import Flask, request, send_from_directory
 
 app = Flask(__name__)
-UPLOAD_FOLDER = 'data'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+# Render has a limited ephemeral file system, so we use /tmp or a local 'data' folder
+DATA_DIR = 'data'
+os.makedirs(DATA_DIR, exist_ok=True)
 
 @app.route('/export', methods=['POST'])
-def handle_export():
-    if 'file' not in request.files:
-        return "No file part", 400
+def receive_export():
+    # Snallabot typically sends the zip as the request body or a file field
+    file_data = request.data
+    zip_path = os.path.join(DATA_DIR, 'league_data.zip')
     
-    file = request.files['file']
-    if file.filename == '':
-        return "No selected file", 400
-
-    # Save and Extract
-    zip_path = os.path.join(UPLOAD_FOLDER, "export.zip")
-    file.save(zip_path)
+    with open(zip_path, 'wb') as f:
+        f.write(file_data)
     
-    with zip_file.ZipFile(zip_path, 'r') as zip_ref:
-        zip_ref.extractall(UPLOAD_FOLDER)
-    
-    return "Export successful!", 200
+    # Unzip immediately so the JSONs are accessible
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(DATA_DIR)
+        return "Success: Unzipped Snallabot export", 200
+    except Exception as e:
+        return f"Error unzipping: {str(e)}", 500
 
-@app.route('/data/<filename>', methods=['GET'])
-def get_data(filename):
-    # This allows your bot to "look" here for players.json, teams.json, etc.
-    return send_from_directory(UPLOAD_FOLDER, filename)
+@app.route('/data/<path:filename>')
+def serve_data(filename):
+    return send_from_directory(DATA_DIR, filename)
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(host='0.0.0.0', port=10000)
