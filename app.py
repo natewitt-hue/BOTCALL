@@ -1,30 +1,32 @@
 import os
-import zipfile
-import shutil
+import json
 from flask import Flask, request, send_from_directory
 
 app = Flask(__name__)
-# Render has a limited ephemeral file system, so we use /tmp or a local 'data' folder
 DATA_DIR = 'data'
 os.makedirs(DATA_DIR, exist_ok=True)
 
-@app.route('/export', methods=['POST'])
-def receive_export():
-    # Snallabot typically sends the zip as the request body or a file field
-    file_data = request.data
-    zip_path = os.path.join(DATA_DIR, 'league_data.zip')
+# This catches everything Snallabot sends (standings, rushing, etc.)
+@app.route('/', defaults={'path': ''}, methods=['POST'])
+@app.route('/<path:path>', methods=['POST'])
+def catch_all(path):
+    # Determine a filename based on the URL path (e.g., 'standings')
+    parts = path.split('/')
+    filename = parts[-1] if parts else "export"
     
-    with open(zip_path, 'wb') as f:
-        f.write(file_data)
+    # Get the data from Snallabot
+    data = request.get_json(force=True, silent=True)
     
-    # Unzip immediately so the JSONs are accessible
-    try:
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(DATA_DIR)
-        return "Success: Unzipped Snallabot export", 200
-    except Exception as e:
-        return f"Error unzipping: {str(e)}", 500
+    if data:
+        file_path = os.path.join(DATA_DIR, f"{filename}.json")
+        with open(file_path, 'w') as f:
+            json.dump(data, f)
+        print(f"Saved: {filename}.json")
+        return "Data Received", 200
+    
+    return "No JSON data found", 400
 
+# This allows WittGPT to read the files
 @app.route('/data/<path:filename>')
 def serve_data(filename):
     return send_from_directory(DATA_DIR, filename)
