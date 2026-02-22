@@ -3,33 +3,41 @@ import json
 from flask import Flask, request, send_from_directory
 
 app = Flask(__name__)
-DATA_DIR = 'data'
+# Using /tmp ensures write permissions on Render's ephemeral disk
+DATA_DIR = os.path.join(os.getcwd(), 'data')
 os.makedirs(DATA_DIR, exist_ok=True)
 
-# This catches everything Snallabot sends (standings, rushing, etc.)
-@app.route('/', defaults={'path': ''}, methods=['POST'])
-@app.route('/<path:path>', methods=['POST'])
-def catch_all(path):
-    # Determine a filename based on the URL path (e.g., 'standings')
-    parts = path.split('/')
-    filename = parts[-1] if parts else "export"
-    
-    # Get the data from Snallabot
-    data = request.get_json(force=True, silent=True)
-    
-    if data:
-        file_path = os.path.join(DATA_DIR, f"{filename}.json")
+@app.route('/', defaults={'path': ''}, methods=['POST', 'GET'])
+@app.route('/<path:path>', methods=['POST', 'GET'])
+def handle_all(path):
+    if request.method == 'POST':
+        # Snallabot sends data as JSON
+        data = request.get_json(force=True, silent=True)
+        if not data:
+            return "No JSON found", 400
+
+        # Create a filename based on the URL path
+        # Example: /ps5/625743/team/774242335/roster -> roster_774242335.json
+        parts = path.strip('/').split('/')
+        
+        if 'roster' in parts:
+            # Identifies which team this roster belongs to
+            team_id = parts[-2] if len(parts) > 1 else "unknown"
+            filename = f"roster_{team_id}.json"
+        else:
+            # Uses the last part of the URL (e.g., standings, leagueteams)
+            filename = f"{parts[-1]}.json" if parts else "export.json"
+
+        file_path = os.path.join(DATA_DIR, filename)
         with open(file_path, 'w') as f:
             json.dump(data, f)
-        print(f"Saved: {filename}.json")
-        return "Data Received", 200
-    
-    return "No JSON data found", 400
+        
+        print(f"Successfully saved: {filename}")
+        return f"Saved {filename}", 200
 
-# This allows WittGPT to read the files
-@app.route('/data/<path:filename>')
-def serve_data(filename):
-    return send_from_directory(DATA_DIR, filename)
+    # If it's a GET request, try to serve the file from the data folder
+    return send_from_directory(DATA_DIR, path)
 
 if __name__ == "__main__":
+    # Render uses port 10000 by default
     app.run(host='0.0.0.0', port=10000)
