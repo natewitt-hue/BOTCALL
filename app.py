@@ -142,9 +142,41 @@ def clear():
     return jsonify({"status": "cleared"}), 200
 
 
+# ── Keep-alive self-ping ──────────────────────────────────────────────────────
+
+import os
+import time
+import threading
+import requests as _requests
+
+def _keep_alive():
+    """
+    Pings this server's own root URL every 10 minutes.
+    Prevents Render's free tier from spinning down after 15 min of inactivity.
+    RENDER_EXTERNAL_URL is set automatically by Render (e.g. https://botcall-ln8q.onrender.com).
+    """
+    base     = os.environ.get("RENDER_EXTERNAL_URL", "http://localhost:10000")
+    ping_url = f"{base}/"
+    interval = 10 * 60   # 10 minutes
+
+    time.sleep(30)       # wait for server to fully boot before first ping
+
+    while True:
+        try:
+            r = _requests.get(ping_url, timeout=10)
+            print(f"[Keep-alive] Pinged {ping_url} → {r.status_code}")
+        except Exception as e:
+            print(f"[Keep-alive] Ping failed: {e}")
+        time.sleep(interval)
+
+# Start keep-alive at module load — runs under both Gunicorn and direct python
+# daemon=True means it won't block process shutdown
+_ka_thread = threading.Thread(target=_keep_alive, daemon=True)
+_ka_thread.start()
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port, debug=False)
